@@ -1,2 +1,6 @@
 open_external_webcam.py
-runs/
+
+# ignore everything in runs/ except the trained model
+runs/**
+!runs/**/
+!runs/detect/runs/drone_yolo26n-3/weights/best.pt
