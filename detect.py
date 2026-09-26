@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import cv2
 import math
+import time
 import serial 
 import numpy as np
 from ultralytics import YOLO
@@ -12,18 +13,35 @@ CONF = 0.3 # minimum confidence to count as a drone
 IMGSZ = 640 # bigger = sees smaller drones but slower. Drop to 640 if it lags.
 DEVICE = "mps" # Apple GPU. Use "cpu" if this errors.
 
-HFOV = 70
-DEADBAND = 2 # only move if the drone is more than 2 deg off centre
+HFOV = 100 # field of view across the camera's LONG side, in degrees
+# If the webcam is mounted on its side (portrait), its picture arrives sideways.
+# Look at the preview window: if the image is sideways, set this to "cw" or "ccw"
+# (whichever makes it upright). Leave as None for a normal landscape camera.
+ROTATE = "ccw" # camera turned 90 deg clockwise (as seen from the front), so turn the picture back anticlockwise
+DEADBAND = 1 # only move if the drone is more than 2 deg off centre
 GAIN = 0.4 # higher makes the pan faster, but more likely to overshoot. lower is smoother, but lag
+
+# Which way the servos turn (from the p/t test):
+#   p 120 turned the camera anticlockwise (LEFT), so a higher pan number = left  -> -1
+#   t 170 tilted the camera UP, so a higher tilt number = up                     -> +1
+# If the camera runs AWAY from the drone on one axis, flip that one's sign.
+PAN_DIR = -1
+TILT_DIR = 1
+MAX_STEP = 3 # biggest move per command, in degrees: small steps = smooth, no blur
+SEND_EVERY = 0.1 # seconds between servo commands, so the servo finishes moving before the next one
+PAN_MIN, PAN_MAX = 0, 180    # narrow these if the camera or cable hits something
+TILT_MIN, TILT_MAX = 0, 180
 SERIAL_PORT = "/dev/cu.usbmodem1301" # plug in esp32, then run ls /dev/cu.usb*
 ser = serial.Serial(SERIAL_PORT, 115200) # 115200 is the baud rate, must be same as esp32 code
 pan = 90.0 # current pan angle, 90 = straight ahead
-ser.write(b"P,90\n") # start pointing straight ahead
+tilt = 90.0 # current tilt angle, 90 = level
+ser.write(b"P,90,90\n") # start pointing straight ahead and level
+last_send = 0.0 # time of the last servo command
 
 model = YOLO(WEIGHTS)
 cap = cv2.VideoCapture(CAMERA)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1280)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
 trails = defaultdict(list)  # track id -> recent centre points
 
@@ -33,6 +51,10 @@ while True:
     if not ok:
         print(f"Can't read from camera {CAMERA}")
         break
+    if ROTATE == "cw":
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif ROTATE == "ccw":
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
     # track() = detect + keep the same ID on the same drone from frame to frame
     results = model.track(
@@ -66,7 +88,7 @@ while True:
             # For each frame, append the current centre of the box to the list, and only keep past 30 pos to keep the trail short 
             # trails[tid].append((int(x), int(y)))
             # trails[tid] = trails[tid][-30:] 
-            if c < 0.3:
+            if c < CONF:
                 continue
 
             # # convert the list of points into the format OpenCV
@@ -77,7 +99,7 @@ while True:
 
             # remember the most confident drone; only that one steers the servo
             if best is None or c > best[1]:
-                best = (diff_x, c)
+                best = (diff_x, c, diff_y)
 
             # Draw a line from the centre of the camera to the centre of the bounding box
             cv2.line(annotated, (cam_cx, cam_cy), (x, y), (0, 0, 255), 2)
@@ -89,18 +111,29 @@ while True:
                 0.6, (0, 0, 255), 2
             )
         if best is not None:
-            f = (w / 2) / math.tan(math.radians(HFOV / 2))   # focal length in pixels
-            angle = math.degrees(math.atan(best[0] / f))     # degrees off centre (+ = right)
-            if abs(angle) > DEADBAND:
-                pan = min(max(pan + GAIN * angle, 0), 180)
-                ser.write(f"P,{pan:.1f}\n".encode())         # e.g. "P,97.3\n"
+            f = (max(w, h) / 2) / math.tan(math.radians(HFOV / 2))   # focal length in pixels (same for x and y)
+            ang_right = math.degrees(math.atan(best[0] / f))  # + = drone is right of centre
+            ang_up = -math.degrees(math.atan(best[2] / f))    # + = drone is above centre (image y grows downward)
+            moved = False
+            if time.time() - last_send >= SEND_EVERY:
+                if abs(ang_right) > DEADBAND:
+                    step = max(-MAX_STEP, min(MAX_STEP, GAIN * ang_right))
+                    pan = min(max(pan + PAN_DIR * step, PAN_MIN), PAN_MAX)
+                    moved = True
+                if abs(ang_up) > DEADBAND:
+                    step = max(-MAX_STEP, min(MAX_STEP, GAIN * ang_up))
+                    tilt = min(max(tilt + TILT_DIR * step, TILT_MIN), TILT_MAX)
+                    moved = True
+            if moved:
+                last_send = time.time()
+                ser.write(f"P,{pan:.1f},{tilt:.1f}\n".encode())   # e.g. "P,97.3,84.0\n"
+                print(f"sent P,{pan:.1f},{tilt:.1f}  (drone {ang_right:+.1f} deg right, {ang_up:+.1f} deg up)")
                         
     cv2.imshow("Drone detection (press q to quit)", annotated)
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-ser.write(f"P,{pan:.1f}\n".encode())
-print(f"sent P,{pan:.1f}  (angle {angle:+.1f} deg)")
+ser.write(b"P,90,90\n") # back to straight ahead and level on exit
 ser.close()
 cap.release()
 cv2.destroyAllWindows()
