@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"name": "pan_servo",
+			"path": ".."
+		}
+	],
+	"settings": {}
+}
