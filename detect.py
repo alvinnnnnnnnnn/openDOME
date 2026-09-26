@@ -2,28 +2,33 @@ from collections import defaultdict
 
 import cv2
 import math
-import serial
+import serial 
 import numpy as np
 from ultralytics import YOLO
 
 WEIGHTS = "runs/detect/runs/drone_yolo26n-3/weights/best.pt" # path to YOUR trained model
 CAMERA = 0 # external webcam 
-CONF = 0.4 # minimum confidence to count as a drone
+CONF = 0.3 # minimum confidence to count as a drone
 IMGSZ = 640 # bigger = sees smaller drones but slower. Drop to 640 if it lags.
 DEVICE = "mps" # Apple GPU. Use "cpu" if this errors.
 
 HFOV = 70
 DEADBAND = 2 # only move if the drone is more than 2 deg off centre
 GAIN = 0.4 # higher makes the pan faster, but more likely to overshoot. lower is smoother, but lag
+SERIAL_PORT = "/dev/cu.usbmodem1301" # plug in esp32, then run ls /dev/cu.usb*
+ser = serial.Serial(SERIAL_PORT, 115200) # 115200 is the baud rate, must be same as esp32 code
+pan = 90.0 # current pan angle, 90 = straight ahead
+ser.write(b"P,90\n") # start pointing straight ahead
 
 model = YOLO(WEIGHTS)
 cap = cv2.VideoCapture(CAMERA)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1280)
 
 trails = defaultdict(list)  # track id -> recent centre points
 
 while True:
+    ser.reset_input_buffer() # discard mic audio from the ESP32; we only send servo commands here
     ok, frame = cap.read()
     if not ok:
         print(f"Can't read from camera {CAMERA}")
@@ -39,7 +44,6 @@ while True:
         device=DEVICE, # use either "cpu" or "mps" (Apple GPU). If you have an NVIDIA GPU, use "cuda"
         verbose=False # stops it printing a line of output for every frame.
     )
-    print(results)
     # ultralytics multiple images at once. since only have one frame, use results[0]
 
     # frame is annotated with bounding boxes, class name, confidence and track ID
@@ -62,16 +66,18 @@ while True:
             # For each frame, append the current centre of the box to the list, and only keep past 30 pos to keep the trail short 
             # trails[tid].append((int(x), int(y)))
             # trails[tid] = trails[tid][-30:] 
-            if c < 0.6:
+            if c < 0.3:
                 continue
 
-            if best is None or c > best[1]:
-                best = (diff_x, c)
             # # convert the list of points into the format OpenCV
             # pts = np.array(trails[tid], dtype=np.int32).reshape(-1, 1, 2)
             # cv2.polylines(annotated, [pts], False, (0, 255, 255), 2)
             x, y = int(x), int(y)
             diff_x, diff_y = x - cam_cx, y - cam_cy
+
+            # remember the most confident drone; only that one steers the servo
+            if best is None or c > best[1]:
+                best = (diff_x, c)
 
             # Draw a line from the centre of the camera to the centre of the bounding box
             cv2.line(annotated, (cam_cx, cam_cy), (x, y), (0, 0, 255), 2)
@@ -93,5 +99,8 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
+ser.write(f"P,{pan:.1f}\n".encode())
+print(f"sent P,{pan:.1f}  (angle {angle:+.1f} deg)")
+ser.close()
 cap.release()
 cv2.destroyAllWindows()
