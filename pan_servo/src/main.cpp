@@ -37,7 +37,7 @@
 const int SAMPLE_RATE = 32000;   // Hz. 48000 per brief if the USB link keeps up (check "gaps" on laptop)
 const int FRAMES = 256;          // frames per packet (1 frame = 1 sample from each of the 4 mics)
 const int PIN_SCK = 4, PIN_WS = 5, PIN_SD1 = 6, PIN_SD2 = 7;
-const int PIN_PAN = 1, PIN_TILT = 2;
+const int PIN_PAN = 2, PIN_TILT = 1;
 
 // ---------- packet ----------
 const int HEADER = 8;                         // marker(2) seq(2) rate(2) frames(2)
