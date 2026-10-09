@@ -10,7 +10,7 @@ from ultralytics import YOLO
 
 from mic_monitor import PacketReader  # safe to import: mic_monitor only runs main() when run directly
 
-WEIGHTS = "best.pt" # path to YOUR trained model
+WEIGHTS = "runs/detect/runs/drone_yolo26n/weights/best.pt" # path to YOUR trained model
 CAMERA = 0 # external webcam
 CONF = 0.6 # minimum confidence to count as a drone
 IMGSZ = 640 # bigger = sees smaller drones but slower.
@@ -38,7 +38,7 @@ SERIAL_PORT = "/dev/cu.usbmodem1301" # plug in esp32, then run ls /dev/cu.usb*
 
 # --- wake-on-sound: the mic is only a trigger (no direction-finding) ---
 WINDOW_S = 0.5             # score the mic every this many seconds
-SCORE_THRESHOLD_DB = -40   # placeholder: tune it using the band score printed while asleep
+SCORE_THRESHOLD_DB = -41   # placeholder: tune it using the band score printed while asleep
 WAKE_CONSECUTIVE = 2       # this many loud windows in a row are needed to wake (ignores one-off claps/bangs)
 SLEEP_AFTER_QUIET_S = 8.0  # sleep again after this long with no sound AND no detection
 BAND_LO, BAND_HI = 200, 4000   # Hz, where drone propeller noise mostly sits

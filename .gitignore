@@ -1,6 +1,9 @@
 open_external_webcam.py
+yolo26n.pt
+dataset/
 
 # ignore everything in runs/ except the trained model
 runs/**
 !runs/**/
-!runs/detect/runs/drone_yolo26n-3/weights/best.pt
+!runs/detect/runs/drone_yolo26n/weights/best.pt
+context/
