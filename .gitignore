@@ -7,3 +7,5 @@ runs/**
 !runs/**/
 !runs/detect/runs/drone_yolo26n/weights/best.pt
 context/
+
+improvements.md
